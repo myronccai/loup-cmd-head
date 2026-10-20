@@ -1,64 +1,87 @@
 @mode(host.dual)
 
 from debug.assert import (expect, expectEq);
-from cli.args import (parse_args, DEFAULT_GREETING);
+from cli.args import (
+    parse_args, is_obsolete_count, match_long, long_names,
+    HEADERS_AUTO, HEADERS_NEVER, HEADERS_ALWAYS,
+);
 
-func test_no_arguments(): void {
+func test_defaults(): void {
     let none: list[string] = [];
     let opts = parse_args(none).unwrap();
-    expectEq(opts.command, "", "no command");
+    expectEq(opts.count, 10, "ten lines");
+    expect(!opts.count_bytes and !opts.elide and !opts.zero, "lines, from the start");
+    expectEq(opts.headers, HEADERS_AUTO, "headers when several files");
     expectEq(opts.operands.len(), 0, "no operands");
-    expectEq(opts.greeting, DEFAULT_GREETING, "default greeting");
-    expect(!opts.help and !opts.version and !opts.verbose and !opts.shout, "no flags set");
 }
 
-func test_command_and_operands(): void {
-    let opts = parse_args(["hello", "Ann"]).unwrap();
-    expectEq(opts.command, "hello", "command");
-    expectEq(opts.operands.len(), 1, "one operand");
-    expectEq(opts.operands[0], "Ann", "operand");
+func test_count_options(): void {
+    let lines = parse_args(["-n", "3", "f"]).unwrap();
+    expect(lines.count == 3 and !lines.count_bytes, "-n 3");
+    expectEq(lines.operands[0], "f", "operand");
+    let bytes = parse_args(["-c5"]).unwrap();
+    expect(bytes.count == 5 and bytes.count_bytes, "-c5");
+    let elide = parse_args(["--lines=-2"]).unwrap();
+    expect(elide.count == 2 and elide.elide, "--lines=-2");
+    let last = parse_args(["-n", "2", "-c", "7"]).unwrap();
+    expect(last.count == 7 and last.count_bytes, "the last count wins");
 }
 
-func test_flags_anywhere(): void {
-    let opts = parse_args(["-v", "hello", "--shout", "Ann"]).unwrap();
-    expect(opts.verbose, "verbose");
-    expect(opts.shout, "shout");
-    expectEq(opts.command, "hello", "command");
-    expectEq(opts.operands[0], "Ann", "operand");
+func test_clusters(): void {
+    let opts = parse_args(["-qzn4"]).unwrap();
+    expect(opts.headers == HEADERS_NEVER and opts.zero and opts.count == 4, "-qzn4");
+    expectEq(parse_args(["-nq"]).unwrap_err().message, "invalid number of lines: 'q'", "-nq takes q as the count");
 }
 
-func test_help_and_version(): void {
-    expect(parse_args(["--help"]).unwrap().help, "--help");
-    expect(parse_args(["-h"]).unwrap().help, "-h");
-    expect(parse_args(["--version"]).unwrap().version, "--version");
-    expect(parse_args(["-V"]).unwrap().version, "-V");
+func test_headers_last_wins(): void {
+    expectEq(parse_args(["-q", "-v"]).unwrap().headers, HEADERS_ALWAYS, "-q -v");
+    expectEq(parse_args(["--verbose", "--silent"]).unwrap().headers, HEADERS_NEVER, "--verbose --silent");
 }
 
-func test_value_option_forms(): void {
-    expectEq(parse_args(["-g", "Hi"]).unwrap().greeting, "Hi", "-g VALUE");
-    expectEq(parse_args(["--greeting", "Hi"]).unwrap().greeting, "Hi", "--greeting VALUE");
-    expectEq(parse_args(["--greeting=a=b"]).unwrap().greeting, "a=b", "--greeting=VALUE keeps '='");
+func test_obsolete_count(): void {
+    expect(is_obsolete_count("-5"), "-5");
+    expect(!is_obsolete_count("-n"), "-n");
+    expect(!is_obsolete_count("-"), "-");
+    let five = parse_args(["-5", "f"]).unwrap();
+    expect(five.count == 5 and !five.count_bytes, "-5");
+    let bytes = parse_args(["-5c"]).unwrap();
+    expect(bytes.count == 5 and bytes.count_bytes, "-5c");
+    let kilo = parse_args(["-2kqv"]).unwrap();
+    expect(kilo.count == 2048 and kilo.count_bytes and kilo.headers == HEADERS_ALWAYS, "-2kqv");
+    expectEq(parse_args(["-3x"]).unwrap_err().message, "invalid trailing option -- x", "bad letter");
+    expectEq(parse_args(["-n", "1", "-5"]).unwrap_err().message, "invalid trailing option -- 5", "not first");
 }
 
-func test_double_dash_ends_options(): void {
-    let opts = parse_args(["hello", "--", "--shout"]).unwrap();
-    expect(!opts.shout, "--shout after -- is an operand");
-    expectEq(opts.operands[0], "--shout", "operand");
+func test_operands_and_double_dash(): void {
+    let opts = parse_args(["a", "-n", "1", "-", "--", "-v"]).unwrap();
+    expectEq(opts.count, 1, "option after an operand");
+    expectEq(opts.operands.len(), 3, "a, -, -v");
+    expectEq(opts.operands[2], "-v", "-v after -- is an operand");
+    expectEq(opts.headers, HEADERS_AUTO, "not verbose");
 }
 
-func test_lone_dash_is_operand(): void {
-    let opts = parse_args(["hello", "-"]).unwrap();
-    expectEq(opts.operands[0], "-", "operand");
+func test_long_names(): void {
+    expectEq(match_long("q", "--q", long_names()).unwrap(), "quiet", "prefix");
+    expectEq(
+        match_long("v", "--v", long_names()).unwrap_err(),
+        "option '--v' is ambiguous; possibilities: '--verbose' '--version'",
+        "ambiguous",
+    );
 }
 
-func test_unknown_option(): void {
-    expectEq(parse_args(["--nope"]).unwrap_err(), "unknown option '--nope'", "error message");
+func test_usage_errors(): void {
+    let missing = parse_args(["-n"]).unwrap_err();
+    expectEq(missing.message, "option requires an argument -- 'n'", "short");
+    expect(missing.try_help, "with the Try line");
+    expectEq(parse_args(["--lines"]).unwrap_err().message, "option '--lines' requires an argument", "long");
+    expectEq(parse_args(["--quiet=1"]).unwrap_err().message, "option '--quiet' doesn't allow an argument", "argument");
+    expectEq(parse_args(["-x"]).unwrap_err().message, "invalid option -- 'x'", "unknown");
+    let number = parse_args(["-c", "x"]).unwrap_err();
+    expectEq(number.message, "invalid number of bytes: 'x'", "bad number");
+    expect(!number.try_help, "no Try line for numbers");
 }
 
-func test_missing_value(): void {
-    expectEq(parse_args(["-g"]).unwrap_err(), "option '-g' requires a value", "error message");
-}
-
-func test_flag_with_value(): void {
-    expectEq(parse_args(["--shout=1"]).unwrap_err(), "option '--shout' does not take a value", "error message");
+func test_help_stops_parsing(): void {
+    expect(parse_args(["--help", "-x"]).unwrap().help, "--help first");
+    expect(parse_args(["--vers"]).unwrap().version, "--vers");
 }

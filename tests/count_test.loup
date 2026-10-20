@@ -1,0 +1,73 @@
+@mode(host.dual)
+
+from debug.assert import (expect, expectEq);
+from cli.count import (parse_size, parse_count, quote_arg);
+
+func value(text: string): int {
+    let size = parse_size(text);
+    expectEq(size.problem, "", i"'{$ text $}' parses");
+    return size.value;
+}
+
+func problem(text: string): string {
+    return parse_size(text).problem;
+}
+
+func test_plain_numbers(): void {
+    expectEq(value("0"), 0, "zero");
+    expectEq(value("42"), 42, "digits");
+    expectEq(value("+7"), 7, "plus sign");
+    expectEq(value("  3"), 3, "leading blanks");
+    expectEq(value("010"), 10, "decimal, not octal");
+}
+
+func test_suffixes(): void {
+    expectEq(value("2b"), 1024, "b is 512");
+    expectEq(value("1k"), 1024, "k");
+    expectEq(value("1K"), 1024, "K");
+    expectEq(value("1KiB"), 1024, "KiB");
+    expectEq(value("1kB"), 1000, "kB");
+    expectEq(value("3M"), 3 * 1024 * 1024, "M");
+    expectEq(value("1MB"), 1000000, "MB");
+    expectEq(value("1G"), 1073741824, "G");
+    expectEq(value("1E"), 1152921504606846976, "E");
+    expectEq(value("k"), 1024, "a suffix alone is one of it");
+}
+
+func test_invalid(): void {
+    expectEq(problem(""), "invalid", "empty");
+    expectEq(problem("x"), "invalid", "letters");
+    expectEq(problem("1x"), "invalid", "bad suffix");
+    expectEq(problem("1kx"), "invalid", "text after the suffix");
+    expectEq(problem("1g"), "invalid", "no lower-case g");
+    expectEq(problem("1bB"), "invalid", "b takes no B");
+    expectEq(problem("-1"), "invalid", "negative");
+    expectEq(problem("1 "), "invalid", "trailing blank");
+}
+
+func test_overflow(): void {
+    expectEq(problem("9223372036854775807"), "", "largest int");
+    expectEq(problem("9223372036854775808"), "overflow", "one more");
+    expectEq(problem("99999999999999999999"), "overflow", "many digits");
+    expectEq(problem("8E"), "overflow", "suffix overflow");
+    expectEq(problem("1Z"), "overflow", "Z");
+}
+
+func test_parse_count(): void {
+    let plain = parse_count("5", true).unwrap();
+    expect(plain.value == 5 and !plain.elide, "5");
+    let elided = parse_count("-5", true).unwrap();
+    expect(elided.value == 5 and elided.elide, "-5");
+    expectEq(parse_count("x", true).unwrap_err(), "invalid number of lines: 'x'", "lines");
+    expectEq(parse_count("-y", false).unwrap_err(), "invalid number of bytes: 'y'", "bytes, dash removed");
+    expectEq(
+        parse_count("1Z", false).unwrap_err(),
+        "invalid number of bytes: '1Z': Value too large for defined data type",
+        "overflow",
+    );
+}
+
+func test_quote_arg(): void {
+    expectEq(quote_arg("ab"), "'ab'", "plain");
+    expectEq(quote_arg("it's"), "'it\\'s'", "quote escaped");
+}

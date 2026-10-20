@@ -1,0 +1,154 @@
+@mode(host.dual)
+
+# head: prints the first lines (-n) or bytes (-c) of each operand, or all
+# but the last ones when the count had a leading `-`, with a `==> NAME <==`
+# header before each operand when there are several (or -v).
+
+from appinfo import (APP_NAME, EXIT_OK, EXIT_FAILURE);
+from cli.args import (Options, HEADERS_ALWAYS, HEADERS_AUTO);
+from cli.output import (print_bytes);
+from io.fs import (isDir);
+
+# The lines head keeps from `text`, delimited by `delim` ("\n", or NUL
+# under -z): the first `count`, or with `elide` all but the last `count`.
+# A last line without a delimiter counts as a line. Splitting and joining
+# work on bytes, so every byte of the kept lines is unchanged.
+pub func head_lines(text: string, count: int, elide: bool, delim: string): string {
+    let pieces = text.split(delim);
+    let ended = pieces.len() - 1;
+    let total = if (pieces[ended] == "") { ended } else { ended + 1 };
+    var keep = count;
+    if (elide) {
+        keep = if (count >= total) { 0 } else { total - count };
+    }
+    if (keep >= total) {
+        return text;
+    }
+    var out: list[string] = [];
+    for (i in 0..keep) {
+        out.push(pieces[i]);
+        out.push(delim);
+    }
+    return out.join("");
+}
+
+# How many leading bytes of an operand of `size` bytes head keeps.
+pub func bytes_kept(size: int, count: int, elide: bool): int {
+    if (elide) {
+        return if (count >= size) { 0 } else { size - count };
+    }
+    return if (count >= size) { size } else { count };
+}
+
+# The header line printed before an operand, with an empty line before it
+# unless it is the first.
+pub func header(name: string, first: bool): string {
+    let gap = if (first) { "" } else { "\n" };
+    return gap + "==> " + name + " <==\n";
+}
+
+# Whether to print headers for `operand_count` operands.
+pub func show_headers(opts: Options, operand_count: int): bool {
+    return opts.headers == HEADERS_ALWAYS or (opts.headers == HEADERS_AUTO and operand_count > 1);
+}
+
+# A file name quoted as GNU's quoteaf does for plain and simple names: in
+# single quotes, or in double quotes if it holds a single quote.
+pub func quote_name(name: string): string {
+    if (name.index_of("'") < 0) {
+        return "'" + name + "'";
+    }
+    let awkward = name.index_of("\"") >= 0 or name.index_of("$") >= 0
+        or name.index_of("`") >= 0 or name.index_of("\\") >= 0;
+    if (!awkward) {
+        return "\"" + name + "\"";
+    }
+    return "'" + name.replace("'", "'\\''") + "'";
+}
+
+# The reason in a runtime IoError message such as
+# "read_text failed on 'x': Permission denied (os error 13)".
+pub func io_reason(message: string): string {
+    var reason = message;
+    let start = reason.index_of("': ");
+    if (start >= 0) {
+        reason = reason.slice(start + 3);
+    }
+    let end = reason.index_of(" (os error");
+    if (end >= 0) {
+        reason = reason.slice(0, end);
+    }
+    return reason;
+}
+
+func cannot_open(name: string, reason: string): void {
+    printErr(APP_NAME + ": cannot open " + quote_name(name) + " for reading: " + reason);
+}
+
+pub func run_head(opts: Options): int {
+    var names: list[string] = opts.operands;
+    if (names.len() == 0) {
+        names.push("-");
+    }
+    let headers = show_headers(opts, names.len());
+    let delim = if (opts.zero) { str(char.of(0)) } else { "\n" };
+    var status = EXIT_OK;
+    var first = true;
+
+    for (name in names) {
+        let stdin = name == "-";
+        let title = if (stdin) { "standard input" } else { name };
+        let path = if (stdin) { "/dev/stdin" } else { name };
+        if (!stdin and !exists(name)) {
+            cannot_open(name, "No such file or directory");
+            status = EXIT_FAILURE;
+            continue;
+        }
+        if (!stdin and isDir(name)) {
+            if (headers) {
+                print(header(title, first));
+                first = false;
+            }
+            printErr(APP_NAME + ": error reading " + quote_name(name) + ": Is a directory");
+            status = EXIT_FAILURE;
+            continue;
+        }
+
+        var problem = "";
+        if (opts.count_bytes) {
+            var data = bytesFromInts([]);
+            try {
+                data = readBytes(path);
+            } catch (IoError as e) {
+                problem = io_reason(e.message);
+            }
+            if (problem == "") {
+                if (headers) {
+                    print(header(title, first));
+                    first = false;
+                }
+                let kept = bytes_kept(data.len(), opts.count, opts.elide);
+                print_bytes(data.slice(0, kept));
+            }
+        } else {
+            var text = "";
+            try {
+                text = readText(path);
+            } catch (IoError as e) {
+                problem = io_reason(e.message);
+            }
+            if (problem == "") {
+                if (headers) {
+                    print(header(title, first));
+                    first = false;
+                }
+                print(head_lines(text, opts.count, opts.elide, delim));
+            }
+        }
+        if (problem != "") {
+            cannot_open(name, problem);
+            status = EXIT_FAILURE;
+        }
+    }
+    return status;
+}

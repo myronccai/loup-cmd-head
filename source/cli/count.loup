@@ -1,0 +1,150 @@
+@mode(host.dual)
+
+# Counts as GNU head reads them (xdectoumax): optional leading blanks and
+# `+`, decimal digits, then an optional multiplier suffix: `b` (512),
+# `K`/`k` (1024), `M`/`m`, `G`, `T`, `P`, `E`, `Z`, `Y`, `R`, `Q` (powers of
+# 1024), each of which may end in `iB` (still 1024) or `B` (powers of 1000).
+# A suffix alone counts as 1 of it (`k` is 1024). Values must fit in a
+# 64-bit signed `int`.
+
+pub const MAX_COUNT: int = 9223372036854775807;
+
+# A parsed count, or why it is not one: `problem` is "" when `value` is
+# good, "invalid" for text that is not a count, "overflow" for one too large.
+pub struct Size {
+    pub value: int;
+    pub problem: string;
+}
+
+# A count option's value: the number and whether it had a leading `-`
+# ("all but the last N").
+pub struct Count {
+    pub value: int;
+    pub elide: bool;
+}
+
+func digit_value(ch: string): int {
+    return "0123456789".index_of(ch);
+}
+
+# The power of the base a suffix letter stands for, or -1 if it is not one
+# (`b` is handled apart: it is always 512).
+func suffix_power(ch: string): int {
+    let i = "KMGTPEZYRQ".index_of(ch);
+    if (i >= 0) {
+        return i + 1;
+    }
+    if (ch == "k") {
+        return 1;
+    }
+    if (ch == "m") {
+        return 2;
+    }
+    return -1;
+}
+
+# `value * factor`, or -1 when it would not fit in an `int`.
+func times(value: int, factor: int): int {
+    if (value > MAX_COUNT / factor) {
+        return -1;
+    }
+    return value * factor;
+}
+
+func blank(ch: string): bool {
+    return ch == " " or ch == "\t" or ch == "\n" or ch == "\r" or ch == str(char.of(11))
+        or ch == str(char.of(12));
+}
+
+pub func parse_size(text: string): Size {
+    var chars: list[string] = [];
+    for (ch in text) {
+        chars.push(ch);
+    }
+    var i = 0;
+    while (i < chars.len() and blank(chars[i])) {
+        i += 1;
+    }
+    if (i < chars.len() and chars[i] == "+") {
+        i += 1;
+    }
+
+    var value = 0;
+    var digits = 0;
+    var overflow = false;
+    while (i < chars.len() and digit_value(chars[i]) >= 0) {
+        let d = digit_value(chars[i]);
+        if (overflow or value > (MAX_COUNT - d) / 10) {
+            overflow = true;
+        } else {
+            value = value * 10 + d;
+        }
+        digits += 1;
+        i += 1;
+    }
+
+    if (i < chars.len()) {
+        let letter = chars[i];
+        let power = suffix_power(letter);
+        if (letter != "b" and power < 0) {
+            return Size(value = 0, problem = "invalid");
+        }
+        if (digits == 0) {
+            value = 1;
+        }
+        i += 1;
+        var base = 1024;
+        if (power > 0 and i < chars.len()) {
+            if (chars[i] == "B" or chars[i] == "D") {
+                base = 1000;
+                i += 1;
+            } else if (chars[i] == "i" and i + 1 < chars.len() and chars[i + 1] == "B") {
+                i += 2;
+            }
+        }
+        if (i < chars.len()) {
+            return Size(value = 0, problem = "invalid");
+        }
+        if (letter == "b") {
+            value = times(value, 512);
+        } else {
+            var k = 0;
+            while (k < power and value >= 0) {
+                value = times(value, base);
+                k += 1;
+            }
+        }
+        if (value < 0) {
+            overflow = true;
+        }
+    } else if (digits == 0) {
+        return Size(value = 0, problem = "invalid");
+    }
+
+    if (overflow) {
+        return Size(value = 0, problem = "overflow");
+    }
+    return Size(value = value, problem = "");
+}
+
+# `text` quoted as GNU's quote() does in the C locale: in single quotes,
+# with backslashes before `\` and `'`.
+pub func quote_arg(text: string): string {
+    return "'" + text.replace("\\", "\\\\").replace("'", "\\'") + "'";
+}
+
+# The value of `-n ARG` (lines) or `-c ARG` (bytes), or GNU's message.
+pub func parse_count(arg: string, lines: bool): Result[Count, string] {
+    let elide = arg.startsWith("-");
+    let text = if (elide) { arg.slice(1) } else { arg };
+    let size = parse_size(text);
+    if (size.problem == "") {
+        return Ok(Count(value = size.value, elide = elide));
+    }
+    let what = if (lines) { "lines" } else { "bytes" };
+    var message = "invalid number of " + what + ": " + quote_arg(text);
+    if (size.problem == "overflow") {
+        message += ": Value too large for defined data type";
+    }
+    return Err(message);
+}

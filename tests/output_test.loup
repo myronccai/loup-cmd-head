@@ -1,0 +1,21 @@
+@mode(host.dual)
+
+from debug.assert import (expect);
+from cli.output import (is_utf8);
+
+func test_valid_utf8(): void {
+    expect(is_utf8(bytesFromInts([])), "empty");
+    expect(is_utf8(bytesFromInts([104, 0, 10])), "ASCII and NUL");
+    expect(is_utf8(bytesFromInts([0xC3, 0xA9])), "two bytes");
+    expect(is_utf8(bytesFromInts([0xE2, 0x82, 0xAC])), "three bytes");
+    expect(is_utf8(bytesFromInts([0xF0, 0x9F, 0x98, 0x80])), "four bytes");
+}
+
+func test_invalid_utf8(): void {
+    expect(!is_utf8(bytesFromInts([0xC3])), "cut short");
+    expect(!is_utf8(bytesFromInts([0xA9])), "lone continuation");
+    expect(!is_utf8(bytesFromInts([0xC0, 0x80])), "overlong");
+    expect(!is_utf8(bytesFromInts([0xED, 0xA0, 0x80])), "surrogate");
+    expect(!is_utf8(bytesFromInts([0xF4, 0x90, 0x80, 0x80])), "above U+10FFFF");
+    expect(!is_utf8(bytesFromInts([0xFF])), "0xFF");
+}
