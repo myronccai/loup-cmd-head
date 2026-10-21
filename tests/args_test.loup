@@ -10,7 +10,7 @@
 
 from debug.assert import (expect, expectEq);
 from cli.args import (
-    parse_args, is_obsolete_count, match_long, long_names,
+    UsageError, parse_args, is_obsolete_count, match_long, long_names,
     HEADERS_AUTO, HEADERS_NEVER, HEADERS_ALWAYS,
 );
 
@@ -87,6 +87,15 @@ func test_usage_errors(): void {
     let number = parse_args(["-c", "x"]).unwrap_err();
     expectEq(number.message, "invalid number of bytes: 'x'", "bad number");
     expect(!number.try_help, "no Try line for numbers");
+    let obsolete = parse_args(["-99999999999999999999"]).unwrap_err();
+    expectEq(obsolete.message, "invalid number of lines: '99999999999999999999': Value too large for defined data type", "obsolete count");
+    expect(!obsolete.try_help, "no Try line for an obsolete count");
+}
+
+func test_usage_error_from_string(): void {
+    let e = UsageError.from("invalid number of lines: 'x'");
+    expectEq(e.message, "invalid number of lines: 'x'", "message kept");
+    expect(!e.try_help, "a converted error has no Try line");
 }
 
 func test_help_stops_parsing(): void {

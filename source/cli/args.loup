@@ -33,9 +33,22 @@ pub struct Options {
 
 # A command line head cannot run: GNU's message, and whether to follow it
 # with the "Try 'head --help'" line (bad numbers do not get one).
-pub struct UsageError {
-    pub message: string;
-    pub try_help: bool;
+#
+# A class implementing From[string], so that `?` on a Result[_, string]
+# turns the error into a UsageError. The only such errors here are cli.count's
+# messages about bad numbers, so `from` gives them no Try line.
+pub class UsageError implements From[string] {
+    pub let message: string;
+    pub let try_help: bool;
+
+    new(message: string, try_help: bool) {
+        this.message = message;
+        this.try_help = try_help;
+    }
+
+    pub static func from(message: string): UsageError {
+        return UsageError(message, false);
+    }
 }
 
 # head's long options, in GNU's order (the order of an ambiguity message).
@@ -71,11 +84,7 @@ pub func match_long(given: string, arg: string, names: list[string]): Result[str
 }
 
 func usage_error(message: string): UsageError {
-    return UsageError(message = message, try_help = true);
-}
-
-func number_error(message: string): UsageError {
-    return UsageError(message = message, try_help = false);
+    return UsageError(message, true);
 }
 
 func is_digit(ch: string): bool {
@@ -136,12 +145,7 @@ pub func parse_args(argv: list[string]): Result[Options, UsageError] {
             }
             k += 1;
         }
-        let parsed = match parse_count(number + multiplier, lines) {
-            Ok(c) => c,
-            Err(msg) => {
-                return Err(number_error(msg));
-            },
-        };
+        let parsed = parse_count(number + multiplier, lines)?;
         count = parsed.value;
         count_bytes = !lines;
         i = 1;
@@ -241,12 +245,7 @@ pub func parse_args(argv: list[string]): Result[Options, UsageError] {
 
         # A later -c/-n replaces an earlier one, as in GNU head.
         if (has_value) {
-            let parsed = match parse_count(value, option == "n") {
-                Ok(c) => c,
-                Err(msg) => {
-                    return Err(number_error(msg));
-                },
-            };
+            let parsed = parse_count(value, option == "n")?;
             count = parsed.value;
             count_bytes = option == "c";
             elide = parsed.elide;
