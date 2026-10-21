@@ -1,5 +1,13 @@
 @mode(host.dual)
 
+# Unit tests for the UTF-8 check that decides how cli.output writes bytes.
+# print_bytes itself calls C, which only the native binary can do, so
+# tests/e2e.sh covers it.
+#
+# Runtime: host.dual, run by the test runner: `make test` interprets this
+# file with Stage0 (`loup-bootstrap test`, source/ on LOUPPATH), one test
+# per `func test_*()`. It is not part of the binary.
+
 from debug.assert import (expect);
 from cli.output import (is_utf8);
 

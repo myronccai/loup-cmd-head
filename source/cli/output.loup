@@ -4,8 +4,14 @@
 # are, but a Loup string can only be built from whole UTF-8 characters, so
 # a slice of bytes that ends inside a character (or binary data) has no
 # string form: `bytes.decode()` would replace the broken sequence with
-# U+FFFD. Such output goes through C's putchar instead, which only a native
-# build can call (`loup run` stops with "unsupported instruction").
+# U+FFFD. Such output goes through C's putchar instead.
+#
+# Runtime: host.dual. Compiled into the native binary build/head by `make
+# build`, which links putchar and fflush from the C library through
+# `extern native "c"`. `loup run` and the Stage0 test runner accept the
+# declarations but cannot call C: `loup run` stops with "unsupported
+# instruction" if print_bytes reaches putchar, and the unit tests only call
+# is_utf8.
 
 extern native "c" func putchar(c: int32): int32;
 extern native "c" func fflush(stream: int): int32;

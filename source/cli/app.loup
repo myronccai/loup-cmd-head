@@ -1,5 +1,13 @@
 @mode(host.dual)
 
+# Top level of head: parse the arguments, handle --help and --version, run
+# the command and turn the outcome into an exit status (1 for a usage
+# error, as GNU head does; a bad number gets no "Try" line).
+#
+# Runtime: host.dual. Compiled into the native binary build/head by `make
+# build`; `loup run source/main.loup` interprets the same code, and the unit
+# tests call run() directly.
+
 from appinfo import (APP_NAME, EXIT_OK, EXIT_FAILURE, EXIT_USAGE);
 from cli.args import (parse_args);
 from cli.usage import (usage, version_line);

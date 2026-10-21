@@ -3,6 +3,11 @@
 # head: prints the first lines (-n) or bytes (-c) of each operand, or all
 # but the last ones when the count had a leading `-`, with a `==> NAME <==`
 # header before each operand when there are several (or -v).
+#
+# Runtime: host.dual. Compiled into the native binary build/head by `make
+# build`; `loup run source/main.loup` interprets the same code. Everything
+# but run_head is a pure function, so the unit tests check results without
+# capturing stdout.
 
 from appinfo import (APP_NAME, EXIT_OK, EXIT_FAILURE);
 from cli.args import (Options, HEADERS_ALWAYS, HEADERS_AUTO);
@@ -95,6 +100,10 @@ pub func run_head(opts: Options): int {
     var status = EXIT_OK;
     var first = true;
 
+    # Missing files and directories are caught before reading: natively a
+    # failed read ends the program rather than throwing, so the catches
+    # below only help under Stage0. A directory still gets its header
+    # first, as in GNU head.
     for (name in names) {
         let stdin = name == "-";
         let title = if (stdin) { "standard input" } else { name };
@@ -114,6 +123,9 @@ pub func run_head(opts: Options): int {
             continue;
         }
 
+        # -c works on bytes, so a cut may fall inside a UTF-8 character and
+        # goes out through print_bytes; -n works on text, whose split and
+        # join keep every byte as it was.
         var problem = "";
         if (opts.count_bytes) {
             var data = bytesFromInts([]);

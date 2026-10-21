@@ -6,6 +6,13 @@
 # ends the options; a lone `-` is an operand (standard input); a long option
 # may be abbreviated to any unique prefix (`--li=5`). Before all that, GNU
 # head accepts an obsolete count as the first argument: `-5`, `-5c`, `-2kq`.
+#
+# Runtime: host.dual. Compiled into the native binary build/head by `make
+# build`; `loup run source/main.loup` interprets the same code.
+#
+# Structure: parse_args makes two passes over the front of argv: first the
+# obsolete count, which only the first argument may be, then the getopt
+# loop over the rest. Counts are parsed by cli.count.
 
 from cli.count import (parse_count);
 
@@ -92,6 +99,9 @@ pub func parse_args(argv: list[string]): Result[Options, UsageError] {
     var only_operands = false;
     var i = 0;
 
+    # Pass 1, the obsolete count (`-5`, `-5c`, `-2kq`): digits, then letters
+    # that pick lines (l) or bytes (c, or b/k/m as a multiplier) or set
+    # q, v and z. GNU only looks for it in the first argument.
     if (argv.len() > 0 and is_obsolete_count(argv[0])) {
         var chars: list[string] = [];
         for (ch in argv[0].slice(1)) {
@@ -137,6 +147,9 @@ pub func parse_args(argv: list[string]): Result[Options, UsageError] {
         i = 1;
     }
 
+    # Pass 2, getopt_long over the rest. Each argument is an operand, `--`,
+    # a long option or a cluster of short letters; -c/-n set `has_value`
+    # and their value is parsed once the argument has been taken apart.
     while (i < argv.len() and !help and !version) {
         let arg = argv[i];
         i += 1;
@@ -226,6 +239,7 @@ pub func parse_args(argv: list[string]): Result[Options, UsageError] {
             }
         }
 
+        # A later -c/-n replaces an earlier one, as in GNU head.
         if (has_value) {
             let parsed = match parse_count(value, option == "n") {
                 Ok(c) => c,

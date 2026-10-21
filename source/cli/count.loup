@@ -6,6 +6,9 @@
 # 1024), each of which may end in `iB` (still 1024) or `B` (powers of 1000).
 # A suffix alone counts as 1 of it (`k` is 1024). Values must fit in a
 # 64-bit signed `int`.
+#
+# Runtime: host.dual. Compiled into the native binary build/head by `make
+# build`; `loup run source/main.loup` interprets the same code.
 
 pub const MAX_COUNT: int = 9223372036854775807;
 
@@ -69,6 +72,8 @@ pub func parse_size(text: string): Size {
         i += 1;
     }
 
+    # Digits keep being read after an overflow, so that a huge number with
+    # junk after it is still reported as invalid rather than too large.
     var value = 0;
     var digits = 0;
     var overflow = false;
@@ -83,6 +88,9 @@ pub func parse_size(text: string): Size {
         i += 1;
     }
 
+    # The suffix: one letter, then for a power letter an optional `B` or
+    # `D` (decimal, base 1000) or `iB` (binary, base 1024). Anything left
+    # after it makes the count invalid.
     if (i < chars.len()) {
         let letter = chars[i];
         let power = suffix_power(letter);
